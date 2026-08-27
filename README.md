@@ -84,7 +84,7 @@ Findings are grouped into three tiers, each with the matching line numbers (so y
 
 ```
 ======================================================================
-  winPEAS OSCP analysis
+  shuckPEAS
 ======================================================================
 CRITICAL: 11   HIGH: 5   INFO: 5
 
