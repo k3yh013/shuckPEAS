@@ -12,17 +12,17 @@ winPEAS output is huge. shuckPEAS strips the ANSI coloring, scans every line aga
 
 ```bash
 # on the target
-./winPEAS.exe | tee winPoutput.txt
+./winPEAS.exe | tee output.txt.txt
 
 # then analyze
-python3 shuckPEAS.py winPoutput.txt
+python3 shuckPEAS.py output.txt.txt
 ```
 
 Also reads from stdin or a redirect:
 
 ```bash
-cat winPoutput.txt | python3 shuckPEAS.py
-python3 shuckPEAS.py < winPoutput.txt
+cat output.txt.txt | python3 shuckPEAS.py
+python3 shuckPEAS.py < output.txt.txt
 ```
 
 ### Run winPEAS and analyze in one shot
@@ -50,7 +50,7 @@ python3 shuckPEAS.py --run .\winPEAS.ps1
 |------|-------------|
 | `--run FILE` | Execute a winPEAS file (any flavor), tee its output, then analyze. |
 | `--run-args "ARGS"` | winPEAS's own switches, passed straight through. E.g. `"systeminfo userinfo"` runs only those modules. Quote the whole string. |
-| `--save RAW.txt` | Where to tee raw output when using `--run` (default: `winPoutput.txt`). |
+| `--save RAW.txt` | Where to tee raw output when using `--run` (default: `output.txt.txt`). |
 | `--md OUT.md` | Also write a Markdown report for your notes/report. |
 | `--no-color` | Plain text output (for piping or logging). |
 
@@ -74,7 +74,7 @@ These are winPEAS's *own* switches (from the [PEASS-ng docs](https://github.com/
 
 ## What it flags
 
-Findings are grouped into three tiers, each with the matching line numbers (so you can jump back into `winPoutput.txt`) and a short "why it matters / next step":
+Findings are grouped into three tiers, each with the matching line numbers (so you can jump back into `output.txt.txt`) and a short "why it matters / next step":
 
 - **CRITICAL** — token privileges (`SeImpersonate`/`SeAssignPrimaryToken` → Potato/PrintSpoofer, `SeDebug`, `SeBackup`/`SeRestore`, `SeLoadDriver`, `SeTakeOwnership`, …), `AlwaysInstallElevated`, and cleartext creds (GPP `cpassword`, AutoLogon, `unattend.xml`, PowerShell history, saved `cmdkey` creds, PuTTY/WinSCP, VNC, web.config connection strings, WiFi keys, SNMP, private keys, modifiable service binaries).
 - **HIGH** — unquoted service paths, writable `%PATH%` dirs (DLL hijack), writable autoruns/scheduled tasks, UAC posture, WDigest/LSA cleartext, cached creds, Credential Manager/DPAPI, weak file permissions, KeePass `.kdbx` and loose backups/notes.
