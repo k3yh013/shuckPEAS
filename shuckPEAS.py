@@ -74,6 +74,66 @@ class C:
 CRIT, HIGH, INFO = "CRITICAL", "HIGH", "INFO"
 SEV_ORDER = {CRIT: 0, HIGH: 1, INFO: 2}
 SEV_COLOR = {CRIT: lambda: C.RED, HIGH: lambda: C.YEL, INFO: lambda: C.CYN}
+
+
+# --------------------------------------------------------------------------- #
+# Banner - three peas dancing in a pod + pipe-font wordmark
+# --------------------------------------------------------------------------- #
+# Each row is (role, text); role picks the colour. UTF-8 first, ASCII fallback.
+_BANNER_UTF = [
+    ("rule", "╔══════════════════════════════════════════════════╗"),
+    ("pea",  "     \\╪/          \\╪/           \\╪/"),
+    ("pea",  "   \\(•ᴗ•)/       ᕕ(•ᴗ•)ᕗ      \\(•ᴗ•)/"),
+    ("pea",  "      ╯ ╰           ╯ ╰           ╯ ╰"),
+    ("pod",  "     ╲______________________________________╱"),
+    ("pod",  "      ╲____________________________________╱"),
+    ("gap",  ""),
+    ("word", "      ┌─┐┬ ┬┬ ┬┌─┐┬┌─   ┌─┐┌─┐┌─┐┌─┐"),
+    ("word", "      └─┐├─┤│ ││  ├┴┐   ├─┘├┤ ├─┤└─┐"),
+    ("word", "      └─┘┴ ┴└─┘└─┘┴ ┴   ┴  └─┘┴ ┴└─┘"),
+    ("gap",  ""),
+    ("tag",  "        winPEAS output  ─►  ranked priv-esc wins"),
+    ("rule", "╚══════════════════════════════════════════════════╝"),
+]
+_BANNER_ASCII = [
+    ("rule", "+==================================================+"),
+    ("pea",  "      \\o/         \\o/         \\o/"),
+    ("pea",  "     <(^o^)>      <(^o^)>      <(^o^)>"),
+    ("pea",  "      / \\         / \\         / \\"),
+    ("pod",  "     \\______________________________________/"),
+    ("gap",  ""),
+    ("word", "               s h u c k P E A S"),
+    ("gap",  ""),
+    ("tag",  "        winPEAS output  ->  ranked priv-esc wins"),
+    ("rule", "+==================================================+"),
+]
+
+
+def print_banner(use_color=True, stream=None):
+    """Print the dancing-peas banner (UTF-8, ASCII fallback) to stderr."""
+    stream = stream or sys.stderr
+    enc = getattr(stream, "encoding", None) or "utf-8"
+    try:
+        "╔•ᴗᕕ╲╪─►".encode(enc)      # can this terminal render the fancy glyphs?
+        lines = _BANNER_UTF
+    except (UnicodeEncodeError, LookupError):
+        lines = _BANNER_ASCII
+
+    role_color = {
+        "rule": C.BOLD + C.GRN,
+        "pea":  C.BOLD + C.GRN,
+        "pod":  C.GRN,
+        "word": C.BOLD + C.MAG,
+        "tag":  C.DIM + C.CYN,
+        "gap":  "",
+    }
+    for role, text in lines:
+        if use_color:
+            stream.write(f"{role_color[role]}{text}{C.RESET}\n")
+        else:
+            stream.write(text + "\n")
+    stream.write("\n")
+    stream.flush()
  
  
 # --------------------------------------------------------------------------- #
