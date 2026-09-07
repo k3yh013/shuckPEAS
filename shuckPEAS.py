@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """
-shuckPEAS.py  -  Run and/or analyze winPEAS output for OSCP privilege-escalation wins.
+shuckPEAS.py  -  Run and/or analyze winPEAS OR linPEAS output for OSCP
+privilege-escalation wins. Auto-detects Windows vs Linux (override with --os).
+
+    python3 shuckPEAS.py winPoutput.txt          # Windows (winPEAS)
+    python3 shuckPEAS.py linpoutput.txt          # Linux (linPEAS) - auto
+    python3 shuckPEAS.py out.txt --os linux      # force the ruleset
+    python3 shuckPEAS.py --run ./linpeas.sh --run-args "-a"
  
 Usage:
     # 1) Analyze an output file you already captured
@@ -46,7 +52,45 @@ from collections import OrderedDict
 # --------------------------------------------------------------------------- #
 # Terminal colours
 # --------------------------------------------------------------------------- #
-ANSI_RE = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')  # strip winPEAS' own colouring
+# Strip ANSI/VT escapes: CSI (colours/cursor), OSC (title), and other 2-byte
+# escapes. winPEAS/linPEAS colour output heavily; carriage returns (CRLF) and
+# stray control bytes are removed separately in scan().
+ANSI_RE = re.compile(
+    r'\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)'   # OSC ... (BEL or ST terminated)
+    r'|\x1b\[[0-?]*[ -/]*[@-~]'            # CSI (SGR colours, cursor moves, ...)
+    r'|\x1b[@-Z\\-_]'                      # other single escapes
+)
+CTRL_RE = re.compile(r'[\x00-\x08\x0b-\x1f\x7f]')  # leftover control bytes (keep \t=09)
+
+# --------------------------------------------------------------------------- #
+# Noise / absence filters (real winPEAS-ng & linPEAS output is very chatty)
+# --------------------------------------------------------------------------- #
+# Lines that are scaffolding/hints, not findings - skipped before rule matching.
+_NOISE = re.compile(
+    r'hacktricks'                                  # help links (every section)
+    r'|carlospolop|peass|@hacktricks_live'
+    r'|^\s*[ÈÉÍ»ºÌÄ¿ÀÙÚ³│┌└├─╔╚╠║╣═]'              # hint bullet / section bars
+    r'|Check if you|Check for |Check if the|Check 3rd|Check the '
+    r'|Indicates (a|an|the)|special privilege over an object|colou?r'
+    r'|^\s*ADVISORY|Do you like PEASS|Follow on|Learn Cloud|Linux PE &'
+    r'|at winPEAS\.|System\.Management|ManagementException|^\s*at [A-Za-z]'
+    r'|You can (find|learn)|for help, run|winpeass?\.exe --help'
+    r'|^\s*\[[-X]\]'                                # winPEAS negative/error markers
+    r'|^\s*https?://\S+\s*$',
+    re.IGNORECASE)
+# Lines that assert something is absent / not exploitable - also skipped.
+_ABSENT = re.compile(
+    r"isn'?t (available|present|vulnerable|set)|is not (available|present|vulnerable|set|enabled)"
+    r"|not vulnerable|no obvious|does ?n'?t grant|access denied|cannot open"
+    r"|\bnot found\b|no results|0 results?|nothing found|could ?n'?t"
+    r"|unable to (enumerate|open|access|read)|\[error\]"
+    r"|no .{0,30} (found|detected|configured)|were not found|are not found",
+    re.IGNORECASE)
+
+
+def clean_line(raw):
+    """Strip ANSI escapes, carriage returns, and stray control bytes."""
+    return CTRL_RE.sub("", ANSI_RE.sub("", raw).replace("\r", "")).rstrip("\n")
  
  
 class C:
@@ -82,29 +126,26 @@ SEV_COLOR = {CRIT: lambda: C.RED, HIGH: lambda: C.YEL, INFO: lambda: C.CYN}
 # Each row is (role, text); role picks the colour. UTF-8 first, ASCII fallback.
 _BANNER_UTF = [
     ("rule", "╔══════════════════════════════════════════════════╗"),
-    ("pea",  "     \\╪/          \\╪/           \\╪/"),
-    ("pea",  "   \\(•ᴗ•)/       ᕕ(•ᴗ•)ᕗ      \\(•ᴗ•)/"),
-    ("pea",  "      ╯ ╰           ╯ ╰           ╯ ╰"),
-    ("pod",  "     ╲______________________________________╱"),
-    ("pod",  "      ╲____________________________________╱"),
+    ("pea",  "       \\╪/        \\╪/          \\╪/"),
+    ("pea",  "     \\(•ᴗ•)/     ᕕ(•ᴗ•)ᕗ     \\(•ᴗ•)/"),
+    ("pea",  "        ╯ ╰         ╯ ╰           ╯ ╰"),
     ("gap",  ""),
     ("word", "      ┌─┐┬ ┬┬ ┬┌─┐┬┌─   ┌─┐┌─┐┌─┐┌─┐"),
     ("word", "      └─┐├─┤│ ││  ├┴┐   ├─┘├┤ ├─┤└─┐"),
     ("word", "      └─┘┴ ┴└─┘└─┘┴ ┴   ┴  └─┘┴ ┴└─┘"),
     ("gap",  ""),
-    ("tag",  "        winPEAS output  ─►  ranked priv-esc wins"),
+    ("tag",  "     winPEAS + linPEAS  ─►  ranked priv-esc wins"),
     ("rule", "╚══════════════════════════════════════════════════╝"),
 ]
 _BANNER_ASCII = [
     ("rule", "+==================================================+"),
-    ("pea",  "      \\o/         \\o/         \\o/"),
+    ("pea",  "      \\o/          \\o/        \\o/"),
     ("pea",  "     <(^o^)>      <(^o^)>      <(^o^)>"),
-    ("pea",  "      / \\         / \\         / \\"),
-    ("pod",  "     \\______________________________________/"),
+    ("pea",  "      / \\          / \\        / \\"),
     ("gap",  ""),
     ("word", "               s h u c k P E A S"),
     ("gap",  ""),
-    ("tag",  "        winPEAS output  ->  ranked priv-esc wins"),
+    ("tag",  "     winPEAS + linPEAS  ->  ranked priv-esc wins"),
     ("rule", "+==================================================+"),
 ]
 
@@ -122,7 +163,6 @@ def print_banner(use_color=True, stream=None):
     role_color = {
         "rule": C.BOLD + C.GRN,
         "pea":  C.BOLD + C.GRN,
-        "pod":  C.GRN,
         "word": C.BOLD + C.MAG,
         "tag":  C.DIM + C.CYN,
         "gap":  "",
@@ -162,7 +202,7 @@ class Rule:
 NEG_NOT_FOUND = r'(not found|no .*found|does not exist|is not|couldn.?t|' \
                 r'no .*detected|0 result|no results|nothing|denied to enumerate)'
  
-RULES = [
+WIN_RULES = [
     # ------------------------------------------------------------------- #
     # CRITICAL - token privileges (Potato / PrintSpoofer / driver loads)
     # ------------------------------------------------------------------- #
@@ -378,6 +418,179 @@ RULES = [
          "Third-party software (esp. running as SYSTEM) is a prime exploit "
          "target - version-check each against exploit-db."),
 ]
+
+
+# =========================================================================== #
+# LINUX rules (linPEAS)
+# =========================================================================== #
+LINUX_RULES = [
+    # ------------------------------------------------------------------- #
+    # CRITICAL - sudo / SUID / capabilities (direct root)
+    # ------------------------------------------------------------------- #
+    Rule(CRIT, "Sudo", "Sudo rights (sudo -l)",
+         r'NOPASSWD|\(ALL(\s*:\s*ALL)?\)|may run the following commands|'
+         r'is allowed to run',
+         "sudo -l output. NOPASSWD or (ALL) ALL on a binary -> run its GTFOBins "
+         "sudo entry for a root shell. Check every allowed command on GTFOBins.",
+         negate=r'not allowed to run sudo|may not run'),
+    Rule(CRIT, "Sudo", "Sudo env_keep / LD_PRELOAD",
+         r'env_keep|LD_PRELOAD|LD_LIBRARY_PATH|SETENV|setenv',
+         "sudo env_keep+=LD_PRELOAD (or SETENV) -> compile a malicious .so and "
+         "load it as root via any sudo-allowed command."),
+    Rule(CRIT, "Sudo", "Sudo version (Baron Samedit)",
+         r'sudo version|CVE-2021-3156|Baron Samedit|CVE-2019-14287',
+         "Check the sudo version: <1.9.5p2 is vulnerable to Baron Samedit "
+         "(CVE-2021-3156) heap overflow -> root. Also note the '!-1'/-u#-1 bug "
+         "(CVE-2019-14287)."),
+    Rule(CRIT, "SUID/SGID", "SUID binary",
+         r'r-s|rws|\bSUID\b|suid',
+         "SUID-root binary -> check GTFOBins; known ones (find, vim, nmap, bash, "
+         "cp, python, etc.) give instant root. linPEAS highlights the juicy ones."),
+    Rule(CRIT, "SUID/SGID", "SGID binary",
+         r'\bSGID\b|sgid|--s---|-r-s',
+         "SGID binary -> GTFOBins SGID entry can escalate to that group (e.g. "
+         "shadow/disk) or aid a chain to root."),
+    Rule(CRIT, "Capabilities", "Linux capabilities",
+         r'cap_setuid|cap_setgid|cap_dac_read_search|cap_dac_override|'
+         r'cap_sys_admin|cap_sys_ptrace|cap_sys_module|capabilities',
+         "A binary with cap_setuid+ep (or similar) -> GTFOBins capabilities entry "
+         "(e.g. python -c 'import os;os.setuid(0);os.system(\"/bin/sh\")')."),
+
+    # ------------------------------------------------------------------- #
+    # CRITICAL - passwd/shadow, groups, NFS, container escapes
+    # ------------------------------------------------------------------- #
+    Rule(CRIT, "Files", "Writable /etc/passwd or /etc/shadow",
+         r'/etc/passwd.*writ|writ.*/etc/passwd|/etc/shadow.*writ|'
+         r'writ.*/etc/shadow|passwd file.*writ',
+         "Writable /etc/passwd -> add a root user (openssl passwd -1). Writable "
+         "/etc/shadow -> replace root's hash. Instant root."),
+    Rule(CRIT, "Files", "Readable /etc/shadow",
+         r'/etc/shadow.*(read|:.*:)|shadow.*readable|root:\$[0-9y]',
+         "Readable /etc/shadow -> crack root's hash offline (john/hashcat) or "
+         "pass it around."),
+    Rule(CRIT, "Groups", "Dangerous group (docker/lxd/disk/adm)",
+         r'\b(docker|lxd|lxc)\b|docker\.sock|inside the docker|'
+         r'\bdisk\b group|group.*\b(docker|lxd|disk|adm|shadow)\b',
+         "docker/lxd -> mount host / run privileged container = root. disk -> "
+         "read raw fs (debugfs). shadow/adm -> read hashes/logs. GTFOBins covers "
+         "the container escapes."),
+    Rule(CRIT, "NFS", "NFS no_root_squash",
+         r'no_root_squash|/etc/exports|insecure.*export',
+         "no_root_squash export -> mount it as a low-priv user elsewhere, drop a "
+         "SUID-root shell into it, run it on the victim as root."),
+    Rule(CRIT, "Kernel", "pkexec / Polkit (PwnKit)",
+         r'pkexec|polkit|PwnKit|CVE-2021-4034',
+         "Vulnerable pkexec -> PwnKit local root (CVE-2021-4034). Nearly "
+         "universal on unpatched 2021-era Linux."),
+
+    # ------------------------------------------------------------------- #
+    # CRITICAL - credentials
+    # ------------------------------------------------------------------- #
+    Rule(CRIT, "Credentials", "Private SSH key",
+         r'BEGIN (RSA|OPENSSH|DSA|EC|PRIVATE) PRIVATE KEY|id_rsa|id_dsa|'
+         r'id_ed25519|\.pem\b',
+         "Readable private key -> SSH as its owner (or to other hosts). Check "
+         "authorized_keys/known_hosts for where it lands."),
+    Rule(CRIT, "Credentials", "Passwords in files / history / env",
+         r'\.bash_history|mysql_history|\.netrc|wp-config|\.env\b|database\.yml|'
+         r'settings\.py|DB_PASS|(pass(word)?|passwd|pwd)\s*[:=]\s*\S',
+         "Config/history/.env files and password= assignments frequently hold DB "
+         "or service creds. Try every one for su/ssh (credential reuse).",
+         negate=r'password\s+(required|sufficient|requisite|optional|\[)|'
+                r'pam_|=\s*(0|1|-1|yes|no|true|false|""|\x27\x27)\s*$'),
+
+    # ------------------------------------------------------------------- #
+    # CRITICAL/HIGH - cron / services / PATH
+    # ------------------------------------------------------------------- #
+    Rule(CRIT, "Cron", "Writable cron job / root script",
+         r'writ.*cron|cron.*writ|/etc/cron.*writ|writable.*\.(sh|py)|'
+         r'crontab.*root',
+         "A cron/script running as root that you can write -> drop a reverse "
+         "shell or SUID payload and wait for the schedule."),
+    Rule(HIGH, "Cron", "Cron jobs / wildcards",
+         r'/etc/cron|crontab|cron\.d|\* \* \* \*|wildcard|tar .*\*',
+         "Review cron entries for writable scripts, relative paths, or wildcard "
+         "injection (tar/rsync/chown wildcards -> arg injection)."),
+    Rule(HIGH, "Services", "Writable systemd/init service",
+         r'\.service.*writ|writ.*\.service|/etc/systemd.*writ|init\.d.*writ|'
+         r'writ.*init\.d|writable.*timer',
+         "Writable service unit or its ExecStart binary -> replace it; runs as "
+         "root on next start/reboot (or trigger it)."),
+    Rule(HIGH, "PATH", "Writable folder in $PATH / '.' in PATH",
+         r'writ.*PATH|PATH.*writ|\bPATH=.*(::|:\.|:\s|^\.)|\.\s+in.*PATH',
+         "A writable dir in root's PATH (or '.' present) -> plant a binary a root "
+         "script calls by bare name."),
+
+    # ------------------------------------------------------------------- #
+    # HIGH - kernel exploits, perms, groups
+    # ------------------------------------------------------------------- #
+    Rule(HIGH, "Kernel", "Possible kernel exploit",
+         r'Dirty ?COW|DirtyPipe|CVE-2016-5195|CVE-2022-0847|CVE-2021-22555|'
+         r'CVE-2017-16995|Linux version [0-3]\.|exploit suggester',
+         "Old kernel -> DirtyCOW (CVE-2016-5195), DirtyPipe (5.8-5.16.11, "
+         "CVE-2022-0847), etc. Confirm exact version; run linux-exploit-suggester "
+         "(les.sh). Kernel exploits are a last resort in OSCP - can crash the box."),
+    Rule(HIGH, "Permissions", "World/group-writable sensitive file",
+         r'is writable|writable by|group writable|world writable|Writable file|'
+         r'\bo\+w\b|777',
+         "A root-owned file/dir writable by you or your group -> tamper for "
+         "escalation. Confirm exact owner + perms with ls -la / find."),
+    Rule(HIGH, "Files", "Interesting / backup files",
+         r'\.kdbx|\.git\b|backup|\.bak\b|\.old\b|\.swp\b|creds?\.|password.*\.txt|'
+         r'\.ovpn\b|\.kdb\b',
+         "Loose secrets/backups. .kdbx = KeePass (keepass2john). Check backups, "
+         ".ovpn, and dotfiles for creds."),
+
+    # ------------------------------------------------------------------- #
+    # INFO - environment / context
+    # ------------------------------------------------------------------- #
+    Rule(INFO, "System", "OS / kernel / distro",
+         r'Linux version|Kernel version|uname|/etc/os-release|DISTRIB_|'
+         r'Distributor|Operative system',
+         "Record exact kernel + distro for kernel-exploit matching "
+         "(linux-exploit-suggester)."),
+    Rule(INFO, "Users", "Users / current context",
+         r'uid=\d|gid=\d|Current user|whoami|home directories|/etc/passwd content',
+         "Note your uid/gid/groups and other users -> confirms privilege level "
+         "and su targets."),
+    Rule(INFO, "Network", "Listening ports / internal services",
+         r'LISTEN|127\.0\.0\.1:|0\.0\.0\.0:|netstat|\bss -|Active Internet',
+         "Internal-only ports -> pivot/port-forward targets (local DB, admin "
+         "panel, redis, etc.)."),
+    Rule(INFO, "Software", "Installed software / processes",
+         r'dpkg -l|rpm -qa|installed|Useful software|running as root|ps aux|'
+         r'Process.*root',
+         "Software/processes running as root are exploit targets - version-check "
+         "each against exploit-db / GTFOBins."),
+]
+
+
+# =========================================================================== #
+# OS auto-detection (winPEAS vs linPEAS output)
+# =========================================================================== #
+WIN_MARKERS = re.compile(
+    r'SeImpersonate|HKLM|HKCU|AlwaysInstallElevated|winPEAS|C:\\\\|'
+    r'\bAdministrator|\bNTLM\b|System32|Microsoft Windows|\.exe\b', re.I)
+LIN_MARKERS = re.compile(
+    r'/etc/passwd|/etc/shadow|\bSUID\b|\bsudo\b|uid=\d|gid=\d|/home/|/root/|'
+    r'Linux version|cap_setuid|linpeas|/usr/bin|/bin/(ba)?sh|GTFOBins', re.I)
+
+
+def detect_os(lines):
+    """Return 'linux' or 'win' by counting OS-specific markers in the output."""
+    w = l = 0
+    for raw in lines:
+        s = ANSI_RE.sub("", raw)
+        w += len(WIN_MARKERS.findall(s))
+        l += len(LIN_MARKERS.findall(s))
+    return "linux" if l > w else "win"
+
+
+def rules_for(os_key):
+    """(rules, label) for an os key ('win' or 'linux')."""
+    if os_key == "linux":
+        return LINUX_RULES, "linPEAS"
+    return WIN_RULES, "winPEAS"
  
  
 # --------------------------------------------------------------------------- #
@@ -401,6 +614,8 @@ def build_command(exe, extra_args):
                 "-File", exe] + extra_args
     if ext in (".bat", ".cmd"):
         return ["cmd", "/c", exe] + extra_args
+    if ext == ".sh":                      # linpeas.sh (Linux)
+        return ["bash", exe] + extra_args
     return [exe] + extra_args
  
  
@@ -466,15 +681,18 @@ def run_winpeas(exe, extra_args, save_path, use_color=True):
 # --------------------------------------------------------------------------- #
 # Core
 # --------------------------------------------------------------------------- #
-def scan(lines):
+def scan(lines, rules):
     """Return OrderedDict: (severity, category, name, note) -> [ (lineno, text) ]"""
     findings = OrderedDict()
     for idx, raw in enumerate(lines, 1):
-        line = ANSI_RE.sub("", raw).rstrip("\n")
+        line = clean_line(raw)
         stripped = line.strip()
         if not stripped:
             continue
-        for rule in RULES:
+        # skip winPEAS/linPEAS scaffolding, help links, and "not found" noise
+        if _NOISE.search(stripped) or _ABSENT.search(stripped):
+            continue
+        for rule in rules:
             if rule.pattern.search(line):
                 if rule.negate and rule.negate.search(line):
                     continue
@@ -487,12 +705,13 @@ def scan(lines):
     return findings
  
  
-def render(findings, use_color=True):
+def render(findings, use_color=True, rules=None, os_label="winPEAS"):
     if not use_color:
         C.disable()
- 
+    rules = rules if rules is not None else WIN_RULES
+
     out = []
-    banner = "winPEAS OSCP analysis"
+    banner = f"{os_label} OSCP analysis"
     out.append(f"{C.BOLD}{C.MAG}{'=' * 70}{C.RESET}")
     out.append(f"{C.BOLD}{C.MAG}  {banner}{C.RESET}")
     out.append(f"{C.BOLD}{C.MAG}{'=' * 70}{C.RESET}")
@@ -525,8 +744,8 @@ def render(findings, use_color=True):
                    f"{'s' if len(keys) != 1 else ''}){C.RESET}")
         out.append(f"{col}{C.BOLD}{'-' * 70}{C.RESET}")
         # keep RULES order within a severity
-        keys_sorted = sorted(keys, key=lambda k: [r.name for r in RULES]
-                             .index(k[2]) if k[2] in [r.name for r in RULES]
+        keys_sorted = sorted(keys, key=lambda k: [r.name for r in rules]
+                             .index(k[2]) if k[2] in [r.name for r in rules]
                              else 999)
         for (s, category, name, note) in keys_sorted:
             evidence = findings[(s, category, name, note)]
@@ -544,15 +763,16 @@ def render(findings, use_color=True):
     return "\n".join(out)
  
  
-def render_markdown(findings):
-    md = ["# winPEAS OSCP analysis\n"]
+def render_markdown(findings, rules=None, os_label="winPEAS"):
+    rules = rules if rules is not None else WIN_RULES
+    md = [f"# {os_label} OSCP analysis\n"]
     by_sev = {CRIT: [], HIGH: [], INFO: []}
     for key in findings:
         by_sev[key[0]].append(key)
     md.append(f"**CRITICAL:** {len(by_sev[CRIT])} &nbsp; "
               f"**HIGH:** {len(by_sev[HIGH])} &nbsp; "
               f"**INFO:** {len(by_sev[INFO])}\n")
-    order = [r.name for r in RULES]
+    order = [r.name for r in rules]
     for sev in (CRIT, HIGH, INFO):
         if not by_sev[sev]:
             continue
@@ -587,12 +807,13 @@ def main():
     ap.add_argument("file", nargs="?", default="-",
                     help="winPEAS output file to analyze (default: read stdin). "
                          "Ignored when --run is used.")
-    ap.add_argument("--run", metavar="WINPEAS_FILE",
-                    help="Execute this winPEAS file, tee its output, then "
-                         "analyze it. Any flavor works: winPEASx64/x86/any "
-                         "(incl. _ofs) .exe, winPEAS.bat, winPEAS.ps1. Must be "
-                         "run on a host that can execute it (Windows; .exe "
-                         "builds also run under wine).")
+    ap.add_argument("--run", metavar="PEAS_FILE",
+                    help="Execute this winPEAS/linPEAS file, tee its output, "
+                         "then analyze it. Any flavor works: winPEASx64/x86/any "
+                         "(incl. _ofs) .exe, winPEAS.bat, winPEAS.ps1, or "
+                         "linpeas.sh. Must run on a host that can execute it "
+                         "(Windows for winPEAS, .exe also under wine; Linux for "
+                         "linpeas.sh).")
     ap.add_argument("--run-args", metavar='"ARGS"', default="",
                     help='Extra args passed straight to winPEAS (its own '
                          'switches), e.g. --run-args "systeminfo userinfo" to '
@@ -604,28 +825,52 @@ def main():
                          "(default: winPoutput.txt).")
     ap.add_argument("--md", metavar="OUT.md",
                     help="Also write a Markdown report for your notes.")
+    ap.add_argument("--os", choices=["auto", "win", "linux"], default="auto",
+                    help="Which PEAS output to expect: win (winPEAS) or linux "
+                         "(linPEAS). Default auto-detects from the content.")
     ap.add_argument("--no-color", action="store_true",
                     help="Disable coloured terminal output.")
+    ap.add_argument("--no-banner", action="store_true",
+                    help="Suppress the dancing-peas startup banner.")
     args = ap.parse_args()
  
     use_color = not args.no_color
- 
+    if not args.no_banner:
+        print_banner(use_color=use_color, stream=sys.stderr)
+
     if args.run:
-        save_path = args.save or "winPoutput.txt"
+        is_sh = args.run.lower().endswith(".sh")
+        save_path = args.save or ("linpoutput.txt" if is_sh else "winPoutput.txt")
         extra = shlex.split(args.run_args) if args.run_args else []
         lines = run_winpeas(args.run, extra, save_path, use_color=use_color)
+        # a .sh run is linPEAS unless the user forced --os
+        run_hint = "linux" if is_sh else "win"
     else:
         if args.save:
             sys.stderr.write("[!] --save only applies with --run; ignoring.\n")
         lines = read_input(args.file)
- 
-    findings = scan(lines)
- 
-    print(render(findings, use_color=use_color))
- 
+        run_hint = None
+
+    if args.os != "auto":
+        os_key = args.os
+    elif run_hint:
+        os_key = run_hint
+    else:
+        os_key = detect_os(lines)
+    rules, os_label = rules_for(os_key)
+
+    how = "auto-detected" if args.os == "auto" else "forced"
+    d = C.DIM if use_color else ""
+    end = C.RESET if use_color else ""
+    sys.stderr.write(f"{d}[*] Analyzing as {os_label} output ({how}).{end}\n\n")
+
+    findings = scan(lines, rules)
+
+    print(render(findings, use_color=use_color, rules=rules, os_label=os_label))
+
     if args.md:
         with open(args.md, "w", encoding="utf-8") as fh:
-            fh.write(render_markdown(findings))
+            fh.write(render_markdown(findings, rules=rules, os_label=os_label))
         tag = C.GRN if use_color else ""
         end = C.RESET if use_color else ""
         print(f"\n{tag}[+] Markdown report written to {args.md}{end}")
