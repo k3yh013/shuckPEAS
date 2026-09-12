@@ -79,13 +79,13 @@ These are PEAS's own switches (from the [PEASS-ng docs](https://github.com/peass
 
 | linPEAS arg	| Effect |
 |-------------|--------|
-| `-a`	All checks (incl. process monitoring, password search, user bruteforce).
-| `-s`	Stealth/fast mode — skips time-consuming checks, doesn't write to disk.
-| `-e`	Extra enumeration normally skipped.
-| `-r`	Regex search for API keys across the filesystem.
-| `-o` <checks>	Run only selected checks (comma-separated, e.g. system_information,container).
-| `-P` <password>	Password to use with sudo -l / su bruteforcing.
-| `-N`	No color. -q suppress banner. -h help.
+| `-a`	| All checks (incl. process monitoring, password search, user bruteforce). |
+| `-s`	| Stealth/fast mode — skips time-consuming checks, doesn't write to disk. |
+| `-e`	| Extra enumeration normally skipped. |
+| `-r`	| Regex search for API keys across the filesystem. |
+| `-o` | <checks>	Run only selected checks (comma-separated, e.g. system_information,container). |
+| `-P` | <password> Password to use with sudo -l / su bruteforcing. |
+| `-N`	| No color. -q suppress banner. -h help. |
 
 ## What it flags
 
