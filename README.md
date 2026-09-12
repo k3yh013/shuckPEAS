@@ -4,7 +4,7 @@
 
 ## Why
 
-winPEAS output is huge. shuckPEAS strips the ANSI coloring, scans every line against ~35 known Windows priv-esc rules, and prints a ranked report so you can go straight for the win instead of scrolling for ten minutes.
+PEAS output is huge. shuckPEAS scans every line against known Windows/Linux priv-esc rules, and prints a ranked report so you can go straight for the win instead of scrolling for ten minutes.
 
 ## Usage
 
@@ -12,28 +12,31 @@ winPEAS output is huge. shuckPEAS strips the ANSI coloring, scans every line aga
 
 ```bash
 # on the target
-./winPEAS.exe | tee output.txt
+./winPEAS.exe | tee winPoutput.txt
+./linpeas.sh  | tee linPoutput.txt
 
 # then analyze
-python3 shuckPEAS.py output.txt
+python3 shuckPEAS.py winPoutput.txt
+python3 shuckPEAS.py linPoutput.txt
 ```
 
 Also reads from stdin or a redirect:
 
 ```bash
-cat output.txt | python3 shuckPEAS.py
-python3 shuckPEAS.py < output.txt
+cat linPoutput.txt | python3 shuckPEAS.py
+python3 shuckPEAS.py < winPoutput.txt
 ```
 
-### Run winPEAS and analyze in one shot
+### Run PEAS and analyze in one shot
 
-`--run` launches winPEAS, streams its live output, tees the raw text to a file, then analyzes it automatically. **Any flavor works** — the extension decides how it's launched:
+`--run` launches winPEAS/linpeas, streams its live output, tees the raw text to a file, then analyzes it automatically.
 
 ```bash
 python3 shuckPEAS.py --run .\winPEASx64.exe --run-args "systeminfo userinfo"
 python3 shuckPEAS.py --run .\winPEASany_ofs.exe --save loot.txt --md out.md
 python3 shuckPEAS.py --run .\winPEAS.bat
 python3 shuckPEAS.py --run .\winPEAS.ps1
+python3 shuckPEAS.py --run ./linpeas.sh --run-args "-a"
 ```
 
 | File type | How it's launched |
@@ -41,6 +44,7 @@ python3 shuckPEAS.py --run .\winPEAS.ps1
 | `.exe` (`winPEASx64` / `x86` / `any`, incl. `_ofs` obfuscated) | run directly |
 | `.bat` (`winPEAS.bat`) | `cmd /c winPEAS.bat` |
 | `.ps1` (`winPEAS.ps1`) | `powershell -NoProfile -ExecutionPolicy Bypass -File` |
+| `.sh` (`linpeas.sh`)	 | `bash linpeas.sh` |
 
 `--run` has to run on a host that can execute the file: Windows for all of them, and the `.exe` builds also run under `wine`. `.bat`/`.ps1` need `cmd.exe` / `powershell` present. Ctrl+C mid-run still analyzes whatever was captured.
 
@@ -48,17 +52,18 @@ python3 shuckPEAS.py --run .\winPEAS.ps1
 
 | Flag | Description |
 |------|-------------|
-| `--run FILE` | Execute a winPEAS file (any flavor), tee its output, then analyze. |
-| `--run-args "ARGS"` | winPEAS's own switches, passed straight through. E.g. `"systeminfo userinfo"` runs only those modules. Quote the whole string. |
+| `--run FILE` | Execute a PEAS file ), tee its output, then analyze. |
+| `--run-args "ARGS"` | PEAS's own switches, passed straight through. E.g. `"systeminfo userinfo"` runs only those modules. Quote the whole string. |
 | `--save RAW.txt` | Where to tee raw output when using `--run` (default: `output.txt`). |
 | `--md OUT.md` | Also write a Markdown report for your notes/report. |
 | `--no-color` | Plain text output (for piping or logging). |
+| `--no-banner` | Suppress the dancing-peas startup banner. |
 
 No dependencies — Python 3 standard library only. Runs anywhere, including a stock Kali box.
 
-### winPEAS arguments you can pass via `--run-args`
+### PEAS arguments you can pass via `--run-args`
 
-These are winPEAS's *own* switches (from the [PEASS-ng docs](https://github.com/peass-ng/PEASS-ng/blob/master/winPEAS/winPEASexe/README.md)) — shuckPEAS just forwards them. With none, winPEAS runs all standard (non-slow) checks, which is usually what you want.
+These are PEAS's own switches (from the [PEASS-ng docs](https://github.com/peass-ng/PEASS-ng/blob/master/winPEAS/winPEASexe/README.md)) — shuckPEAS just forwards them. With none, PEAS runs all standard (non-slow) checks, which is usually what you want.
 
 | winPEAS arg | Effect |
 |-------------|--------|
@@ -72,27 +77,55 @@ These are winPEAS's *own* switches (from the [PEASS-ng docs](https://github.com/
 | `-linpeas=<URL>` | Also fetch and run linpeas. |
 | `log` | **Don't use with `--run`** — winPEAS writes to `out.txt` instead of stdout, so shuckPEAS gets nothing to analyze. Use `--save` for a raw copy instead. |
 
+| linPEAS arg	| Effect |
+|-------------|--------|
+| `-a`	All checks (incl. process monitoring, password search, user bruteforce).
+| `-s`	Stealth/fast mode — skips time-consuming checks, doesn't write to disk.
+| `-e`	Extra enumeration normally skipped.
+| `-r`	Regex search for API keys across the filesystem.
+| `-o` <checks>	Run only selected checks (comma-separated, e.g. system_information,container).
+| `-P` <password>	Password to use with sudo -l / su bruteforcing.
+| `-N`	No color. -q suppress banner. -h help.
+
 ## What it flags
 
 Findings are grouped into three tiers, each with the matching line numbers (so you can jump back into `output.txt`) and a short "why it matters / next step":
 
+Windows (winPEAS)
 - **CRITICAL** — token privileges (`SeImpersonate`/`SeAssignPrimaryToken` → Potato/PrintSpoofer, `SeDebug`, `SeBackup`/`SeRestore`, `SeLoadDriver`, `SeTakeOwnership`, …), `AlwaysInstallElevated`, and cleartext creds (GPP `cpassword`, AutoLogon, `unattend.xml`, PowerShell history, saved `cmdkey` creds, PuTTY/WinSCP, VNC, web.config connection strings, WiFi keys, SNMP, private keys, modifiable service binaries).
 - **HIGH** — unquoted service paths, writable `%PATH%` dirs (DLL hijack), writable autoruns/scheduled tasks, UAC posture, WDigest/LSA cleartext, cached creds, Credential Manager/DPAPI, weak file permissions, KeePass `.kdbx` and loose backups/notes.
 - **INFO** — OS build + hotfix count (for kernel-exploit matching via [wesng](https://github.com/bitsadmin/wesng)/Watson), architecture, AV/Defender, your groups, listening ports, third-party software.
 
-## Example
+Linux (linpeas)
+- **CRITICAL** — sudo -l rights (NOPASSWD / (ALL) ALL → GTFOBins), sudo env_keep/LD_PRELOAD, sudo version (Baron Samedit CVE-2021-3156, CVE-2019-14287), SUID/SGID binaries (GTFOBins), Linux capabilities (cap_setuid etc.), writable/readable /etc/passwd & /etc/shadow, dangerous group membership (docker/lxd/disk/adm/shadow), NFS no_root_squash, pkexec/PwnKit (CVE-2021-4034), private SSH keys, passwords in configs/history/.env, writable root cron scripts.
+- **HIGH** — cron jobs / wildcard injection, writable systemd/init units, writable $PATH or . in PATH, possible kernel exploits (DirtyCOW / DirtyPipe + linux-exploit-suggester pointer), world/group-writable sensitive files, backups / .ovpn / .kdbx.
+- **INFO** — kernel + distro (for kernel-exploit matching), users/current context, listening ports, software/processes running as root.
 
+## Example
 ```
+╔══════════════════════════════════════════════════╗
+      \╪/          \╪/          \╪/
+    \(•ᴗ•)/      ᕕ(•ᴗ•)ᕗ     \(•ᴗ•)/
+      ╯ ╰          ╯ ╰          ╯ ╰
+
+      ┌─┐┬ ┬┬ ┬┌─┐┬┌─   ┌─┐┌─┐┌─┐┌─┐
+      └─┐├─┤│ ││  ├┴┐   ├─┘├┤ ├─┤└─┐
+      └─┘┴ ┴└─┘└─┘┴ ┴   ┴  └─┘┴ ┴└─┘
+
+     winPEAS + linPEAS  ─►  ranked priv-esc wins
+╚══════════════════════════════════════════════════╝
+
+[*] Analyzing as linPEAS output (auto-detected).
+
 ======================================================================
-  shuckPEAS
+  linPEAS analysis
 ======================================================================
-CRITICAL: 11   HIGH: 5   INFO: 5
+CRITICAL: 8   HIGH: 4   INFO: 3
 
 [CRITICAL]
-  * SeImpersonatePrivilege [Token Privileges]
-    why: Potato attack territory. If Enabled -> PrintSpoofer / GodPotato for SYSTEM.
-      L14: SeImpersonatePrivilege   Impersonate a client after authentication  Enabled
-  ...
+  * Sudo rights (sudo -l) [Sudo]
+    why: NOPASSWD or (ALL) ALL on a binary -> run its GTFOBins sudo entry for a root shell.
+      L7: (root) NOPASSWD: /usr/bin/find
 ```
 
 ## Caveats
