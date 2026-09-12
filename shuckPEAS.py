@@ -2,40 +2,35 @@
 """
 shuckPEAS.py  -  Run and/or analyze winPEAS OR linPEAS output for OSCP
 privilege-escalation wins. Auto-detects Windows vs Linux (override with --os).
-
-    python3 shuckPEAS.py winPoutput.txt          # Windows (winPEAS)
-    python3 shuckPEAS.py linpoutput.txt          # Linux (linPEAS) - auto
-    python3 shuckPEAS.py out.txt --os linux      # force the ruleset
-    python3 shuckPEAS.py --run ./linpeas.sh --run-args "-a"
  
 Usage:
     # 1) Analyze an output file you already captured
-    ./winPEAS.exe | tee winPoutput.txt      # on the target (or via your shell)
+    ./winPEAS.exe | tee winPoutput.txt
+    ./linpeas.sh | tee linPoutput.txt
     python3 shuckPEAS.py winPoutput.txt
+    python3 shuckPEAS.py linPoutput.txt
  
-    # 2) Let shuckPEAS run winPEAS itself, then analyze automatically
-    #    (must be on a host where the winPEAS file can execute - Windows/wine)
-    #    Any flavor works - .exe (x64/x86/any, incl. _ofs), .bat, .ps1:
-    python3 shuckPEAS.py --run .\\winPEASx64.exe --run-args "systeminfo userinfo"
-    python3 shuckPEAS.py --run .\\winPEASany_ofs.exe --save loot.txt --md out.md
-    python3 shuckPEAS.py --run .\\winPEAS.bat
-    python3 shuckPEAS.py --run .\\winPEAS.ps1
- 
+    # 2) Let shuckPEAS run PEAS for you and analyse automatically
+    python3 shuckPEAS.py --run .\winPEASx64.exe --run-args "systeminfo userinfo"
+    python3 shuckPEAS.py --run .\winPEASany_ofs.exe --save loot.txt --md out.md
+    python3 shuckPEAS.py --run .\winPEAS.bat
+    python3 shuckPEAS.py --run .\winPEAS.ps1
+    python3 shuckPEAS.py --run ./linpeas.sh --run-args "-a"
+
     # other ways to feed it output:
     python3 shuckPEAS.py < winPoutput.txt
     cat winPoutput.txt | python3 shuckPEAS.py
     python3 shuckPEAS.py winPoutput.txt --md findings.md   # also save a report
-    python3 shuckPEAS.py winPoutput.txt --no-color         # plain text
+    python3 shuckPEAS.py linPoutput.txt --no-color         # plain text
  
 What it does
 ------------
-Optionally runs winPEAS (streaming its live output and tee-ing it to a file),
-then strips winPEAS' ANSI colour codes and scans every line against a rule set
-of known Windows priv-esc vectors. Hits are grouped by severity:
+Optionally runs PEAS and scans every line against a rule set
+of known priv-esc vectors. Hits are grouped by severity:
  
     [CRITICAL] near-guaranteed / direct-to-SYSTEM vectors and cleartext creds
     [HIGH]     strong leads worth exploiting next
-    [INFO]     context you should note (OS build for kernel exploits, AV, etc.)
+    [INFO]     context you should note (OS build, AV, etc.)
  
 Each hit shows the matching line(s) plus a short "why it matters / next step"
 note. It is an analysis aid, not a substitute for reading the full output.
@@ -50,14 +45,14 @@ import sys
 from collections import OrderedDict
  
 # --------------------------------------------------------------------------- #
-# Terminal colours
+# Terminal colors
 # --------------------------------------------------------------------------- #
-# Strip ANSI/VT escapes: CSI (colours/cursor), OSC (title), and other 2-byte
+# Strip ANSI/VT escapes: CSI (colors/cursor), OSC (title), and other 2-byte
 # escapes. winPEAS/linPEAS colour output heavily; carriage returns (CRLF) and
 # stray control bytes are removed separately in scan().
 ANSI_RE = re.compile(
     r'\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)'   # OSC ... (BEL or ST terminated)
-    r'|\x1b\[[0-?]*[ -/]*[@-~]'            # CSI (SGR colours, cursor moves, ...)
+    r'|\x1b\[[0-?]*[ -/]*[@-~]'            # CSI (SGR colors, cursor moves, ...)
     r'|\x1b[@-Z\\-_]'                      # other single escapes
 )
 CTRL_RE = re.compile(r'[\x00-\x08\x0b-\x1f\x7f]')  # leftover control bytes (keep \t=09)
@@ -126,8 +121,8 @@ SEV_COLOR = {CRIT: lambda: C.RED, HIGH: lambda: C.YEL, INFO: lambda: C.CYN}
 # Each row is (role, text); role picks the colour. UTF-8 first, ASCII fallback.
 _BANNER_UTF = [
     ("rule", "╔══════════════════════════════════════════════════╗"),
-    ("pea",  "       \\╪/        \\╪/          \\╪/"),
-    ("pea",  "     \\(•ᴗ•)/     ᕕ(•ᴗ•)ᕗ     \\(•ᴗ•)/"),
+    ("pea",  "       \\╪/        \\╪/           \\╪/"),
+    ("pea",  "     \\(•ᴗ•)/     ᕕ(•ᴗ•)ᕗ      \\(•ᴗ•)/"),
     ("pea",  "        ╯ ╰         ╯ ╰           ╯ ╰"),
     ("gap",  ""),
     ("word", "      ┌─┐┬ ┬┬ ┬┌─┐┬┌─   ┌─┐┌─┐┌─┐┌─┐"),
