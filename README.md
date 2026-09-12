@@ -75,12 +75,12 @@ These are PEAS's own switches (from the [PEASS-ng docs](https://github.com/peass
 | `debug` | Extra debug detail. |
 | `-lolbas` | Also run the (slower) LOLBAS search. |
 | `-linpeas=<URL>` | Also fetch and run linpeas. |
-| `log` | **Don't use with `--run`** — winPEAS writes to `out.txt` instead of stdout, so shuckPEAS gets nothing to analyze. Use `--save` for a raw copy instead. |
+| `log` | **Don't use with `--run`** winPEAS writes to `out.txt` instead of stdout, so shuckPEAS gets nothing to analyze. Use `--save` for a raw copy instead. |
 
 | linPEAS arg	| Effect |
 |-------------|--------|
 | `-a`	| All checks (incl. process monitoring, password search, user bruteforce). |
-| `-s`	| Stealth/fast mode — skips time-consuming checks, doesn't write to disk. |
+| `-s`	| Stealth/fast mode, skips time-consuming checks, doesn't write to disk. |
 | `-e`	| Extra enumeration normally skipped. |
 | `-r`	| Regex search for API keys across the filesystem. |
 | `-o` | <checks>	Run only selected checks (comma-separated, e.g. system_information,container). |
@@ -92,14 +92,14 @@ These are PEAS's own switches (from the [PEASS-ng docs](https://github.com/peass
 Findings are grouped into three tiers, each with the matching line numbers (so you can jump back into `output.txt`) and a short "why it matters / next step":
 
 Windows (winPEAS)
-- **CRITICAL** — token privileges (`SeImpersonate`/`SeAssignPrimaryToken` → Potato/PrintSpoofer, `SeDebug`, `SeBackup`/`SeRestore`, `SeLoadDriver`, `SeTakeOwnership`, …), `AlwaysInstallElevated`, and cleartext creds (GPP `cpassword`, AutoLogon, `unattend.xml`, PowerShell history, saved `cmdkey` creds, PuTTY/WinSCP, VNC, web.config connection strings, WiFi keys, SNMP, private keys, modifiable service binaries).
-- **HIGH** — unquoted service paths, writable `%PATH%` dirs (DLL hijack), writable autoruns/scheduled tasks, UAC posture, WDigest/LSA cleartext, cached creds, Credential Manager/DPAPI, weak file permissions, KeePass `.kdbx` and loose backups/notes.
-- **INFO** — OS build + hotfix count (for kernel-exploit matching via [wesng](https://github.com/bitsadmin/wesng)/Watson), architecture, AV/Defender, your groups, listening ports, third-party software.
+- **CRITICAL** - token privileges (`SeImpersonate`/`SeAssignPrimaryToken` → Potato/PrintSpoofer, `SeDebug`, `SeBackup`/`SeRestore`, `SeLoadDriver`, `SeTakeOwnership`, …), `AlwaysInstallElevated`, and cleartext creds (GPP `cpassword`, AutoLogon, `unattend.xml`, PowerShell history, saved `cmdkey` creds, PuTTY/WinSCP, VNC, web.config connection strings, WiFi keys, SNMP, private keys, modifiable service binaries).
+- **HIGH** - unquoted service paths, writable `%PATH%` dirs (DLL hijack), writable autoruns/scheduled tasks, UAC posture, WDigest/LSA cleartext, cached creds, Credential Manager/DPAPI, weak file permissions, KeePass `.kdbx` and loose backups/notes.
+- **INFO** - OS build + hotfix count (for kernel-exploit matching via [wesng](https://github.com/bitsadmin/wesng)/Watson), architecture, AV/Defender, your groups, listening ports, third-party software.
 
 Linux (linpeas)
-- **CRITICAL** — sudo -l rights (NOPASSWD / (ALL) ALL → GTFOBins), sudo env_keep/LD_PRELOAD, sudo version (Baron Samedit CVE-2021-3156, CVE-2019-14287), SUID/SGID binaries (GTFOBins), Linux capabilities (cap_setuid etc.), writable/readable /etc/passwd & /etc/shadow, dangerous group membership (docker/lxd/disk/adm/shadow), NFS no_root_squash, pkexec/PwnKit (CVE-2021-4034), private SSH keys, passwords in configs/history/.env, writable root cron scripts.
-- **HIGH** — cron jobs / wildcard injection, writable systemd/init units, writable $PATH or . in PATH, possible kernel exploits (DirtyCOW / DirtyPipe + linux-exploit-suggester pointer), world/group-writable sensitive files, backups / .ovpn / .kdbx.
-- **INFO** — kernel + distro (for kernel-exploit matching), users/current context, listening ports, software/processes running as root.
+- **CRITICAL** - sudo -l rights (NOPASSWD / (ALL) ALL → GTFOBins), sudo env_keep/LD_PRELOAD, sudo version (Baron Samedit CVE-2021-3156, CVE-2019-14287), SUID/SGID binaries (GTFOBins), Linux capabilities (cap_setuid etc.), writable/readable /etc/passwd & /etc/shadow, dangerous group membership (docker/lxd/disk/adm/shadow), NFS no_root_squash, pkexec/PwnKit (CVE-2021-4034), private SSH keys, passwords in configs/history/.env, writable root cron scripts.
+- **HIGH** - cron jobs / wildcard injection, writable systemd/init units, writable $PATH or . in PATH, possible kernel exploits (DirtyCOW / DirtyPipe + linux-exploit-suggester pointer), world/group-writable sensitive files, backups / .ovpn / .kdbx.
+- **INFO** - kernel + distro (for kernel-exploit matching), users/current context, listening ports, software/processes running as root.
 
 ## Example
 ```
